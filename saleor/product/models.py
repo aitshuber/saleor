@@ -109,6 +109,7 @@ class Product(SeoModel):
     attributes = HStoreField(default={}, blank=True)
     updated_at = models.DateTimeField(auto_now=True, null=True)
     is_featured = models.BooleanField(default=False)
+    charge_taxes = models.BooleanField(default=True)
 
     # todo: replace this with proper tax rate field
     tax_rate = None
@@ -177,11 +178,12 @@ class Product(SeoModel):
                     variant, discounts=discounts, taxes=taxes)
                 for variant in self]
             return TaxedMoneyRange(min(prices), max(prices))
+        price = calculate_discounted_price(self, self.price, discounts)
+        if not self.charge_taxes:
+            taxes = None
         tax_rate = self.tax_rate or self.product_type.tax_rate
-        discounted_price = calculate_discounted_price(
-            self, self.price, discounts)
-        taxed_price = apply_tax_to_price(taxes, tax_rate, discounted_price)
-        return TaxedMoneyRange(start=taxed_price, stop=taxed_price)
+        price = apply_tax_to_price(taxes, tax_rate, price)
+        return TaxedMoneyRange(start=price, stop=price)
 
 
 class ProductVariant(models.Model):
@@ -210,12 +212,13 @@ class ProductVariant(models.Model):
         return sum([stock.quantity_available for stock in self.stock.all()])
 
     def get_price_per_item(self, discounts=None, taxes=None):
-        tax_rate = (
-            self.product.tax_rate or self.product.product_type.tax_rate)
         price = self.price_override or self.product.price
         price = calculate_discounted_price(self.product, price, discounts)
-        price = apply_tax_to_price(taxes, tax_rate, price)
-        return price
+        if not self.product.charge_taxes:
+            taxes = None
+        tax_rate = (
+            self.product.tax_rate or self.product.product_type.tax_rate)
+        return apply_tax_to_price(taxes, tax_rate, price)
 
     def get_absolute_url(self):
         slug = self.product.get_slug()
